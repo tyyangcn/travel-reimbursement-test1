@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.demo.reimburse.mapper.ReimbursementMapper">
+    <resultMap id="ReimbursementPageResultMap" type="com.example.demo.reimburse.vo.ReimbursementPageVO">
+        <id property="id" column="id"/>
+        <result property="reimNo" column="reim_no"/>
+        <result property="reimTitle" column="reim_title"/>
+        <result property="travelReason" column="travel_reason"/>
+        <result property="companyName" column="company_name"/>
+        <result property="reimDeptName" column="reim_dept_name"/>
+        <result property="reimDeptNo" column="reim_dept_no"/>
+        <result property="reimUserName" column="reim_user_name"/>
+        <result property="reimUserNo" column="reim_user_no"/>
+        <result property="businessTypeName" column="business_type_name"/>
+        <result property="status" column="status"/>
+        <result property="statusName" column="status_name"/>
+        <result property="totalAllowanceAmount" column="total_allowance_amount"/>
+        <result property="createTime" column="create_time"/>
+    </resultMap>
+    <select id="selectPageByCondition" resultMap="ReimbursementPageResultMap">
+        SELECT
+        id,
+        reim_no,
+        reim_title,
+        travel_reason,
+        company_name,
+        reim_dept_name,
+        reim_dept_no,
+        reim_user_name,
+        reim_user_no,
+        business_type_name,
+        status,
+        CASE status
+        WHEN 0 THEN '草稿'
+        WHEN 1 THEN '审批中'
+        WHEN 2 THEN '已作废'
+        ELSE '未知'
+        END AS status_name,
+        total_allowance_amount,
+        create_time
+        FROM fk_reim_main
+        WHERE deleted = 0
+        <if test="query.reimNo != null and query.reimNo != ''">
+            AND reim_no LIKE CONCAT('%', #{query.reimNo}, '%')
+        </if>
+        <if test="query.reimTitle != null and query.reimTitle != ''">
+            AND reim_title LIKE CONCAT('%', #{query.reimTitle}, '%')
+        </if>
+        <if test="query.travelReason != null and query.travelReason != ''">
+            AND travel_reason LIKE CONCAT('%', #{query.travelReason}, '%')
+        </if>
+        <if test="query.companyId != null and query.companyId != ''">
+            AND company_id = #{query.companyId}
+        </if>
+        <if test="query.reimDeptId != null and query.reimDeptId != ''">
+            AND reim_dept_id = #{query.reimDeptId}
+        </if>
+        <if test="query.reimUserId != null and query.reimUserId != ''">
+            AND reim_user_id = #{query.reimUserId}
+        </if>
+        <if test="query.businessTypeId != null and query.businessTypeId != ''">
+            AND business_type_id = #{query.businessTypeId}
+        </if>
+        <if test="query.status != null">
+            AND status = #{query.status}
+        </if>
+        ORDER BY create_time DESC
+    </select>
+
+</mapper>
