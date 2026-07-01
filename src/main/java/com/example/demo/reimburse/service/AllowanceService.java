@@ -1,5 +1,6 @@
 package com.example.demo.reimburse.service;
 
+import com.example.demo.reimburse.dto.AllowanceCalendarAdjustDTO;
 import com.example.demo.reimburse.vo.AllowanceVO;
 
 import java.util.List;
@@ -22,6 +23,19 @@ public interface AllowanceService {
      * @return 补助汇总及每日明细
      */
     List<AllowanceVO> listByReimId(String reimId);
+
+    /**
+     * 调整指定行程的每日补助选择，并重新汇总金额。
+     *
+     * @param reimId 报销单ID
+     * @param allowanceId 补助信息ID
+     * @param adjustList 每日补助调整参数
+     */
+    void adjustCalendar(
+            String reimId,
+            String allowanceId,
+            List<AllowanceCalendarAdjustDTO> adjustList
+    );
 
     /**
      * 行程删除时同步删除对应补助数据。

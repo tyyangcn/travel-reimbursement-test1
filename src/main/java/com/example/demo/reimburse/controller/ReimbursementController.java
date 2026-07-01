@@ -57,4 +57,26 @@ public class ReimbursementController {
         reimbursementService.submit(id);
         return ApiResponse.success();
     }
+
+    @PostMapping("/{id}/void")
+    public ApiResponse<Void> voidReimbursement(
+            @PathVariable String id) {
+        reimbursementService.voidReimbursement(id);
+        return ApiResponse.success();
+    }
+
+    @DeleteMapping("/{id}")
+    public ApiResponse<Void> deleteReimbursement(
+            @PathVariable String id) {
+        reimbursementService.deleteReimbursement(id);
+        return ApiResponse.success();
+    }
+
+    @PostMapping("/{id}/copy")
+    public ApiResponse<String> copyReimbursement(
+            @PathVariable String id) {
+        return ApiResponse.success(
+                reimbursementService.copyReimbursement(id)
+        );
+    }
 }

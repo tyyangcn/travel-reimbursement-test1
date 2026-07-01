@@ -16,5 +16,8 @@ public interface ReimbursementService {
             ReimbursementUpdateDTO updateDTO
     );
     void submit(String id);
+    void voidReimbursement(String id);
+    void deleteReimbursement(String id);
+    String copyReimbursement(String id);
 }
 

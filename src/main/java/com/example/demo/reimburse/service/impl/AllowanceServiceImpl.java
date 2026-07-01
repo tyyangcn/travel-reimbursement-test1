@@ -2,12 +2,15 @@ package com.example.demo.reimburse.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.example.demo.common.exception.BusinessException;
+import com.example.demo.reimburse.dto.AllowanceCalendarAdjustDTO;
 import com.example.demo.reimburse.entity.AllowanceCalendarEntity;
 import com.example.demo.reimburse.entity.AllowanceEntity;
+import com.example.demo.reimburse.entity.AllocationEntity;
 import com.example.demo.reimburse.entity.ReimbursementEntity;
 import com.example.demo.reimburse.entity.TripEntity;
 import com.example.demo.reimburse.mapper.AllowanceCalendarMapper;
 import com.example.demo.reimburse.mapper.AllowanceMapper;
+import com.example.demo.reimburse.mapper.AllocationMapper;
 import com.example.demo.reimburse.mapper.ReimbursementMapper;
 import com.example.demo.reimburse.mapper.TripMapper;
 import com.example.demo.reimburse.service.AllowanceService;
@@ -19,9 +22,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import com.example.demo.reimburse.support.AllowanceStandardCalculator;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -32,19 +38,24 @@ public class AllowanceServiceImpl
         implements AllowanceService {
     private static final int NOT_DELETED = 0;
     private static final int DELETED = 1;
+    private static final int STATUS_DRAFT = 0;
+    private static final int SELECTED = 1;
     private final AllowanceMapper allowanceMapper;
     private final AllowanceCalendarMapper calendarMapper;
+    private final AllocationMapper allocationMapper;
     private final TripMapper tripMapper;
     private final ReimbursementMapper reimbursementMapper;
 
     public AllowanceServiceImpl(
             AllowanceMapper allowanceMapper,
             AllowanceCalendarMapper calendarMapper,
+            AllocationMapper allocationMapper,
             TripMapper tripMapper,
             ReimbursementMapper reimbursementMapper) {
 
         this.allowanceMapper = allowanceMapper;
         this.calendarMapper = calendarMapper;
+        this.allocationMapper = allocationMapper;
         this.tripMapper = tripMapper;
         this.reimbursementMapper = reimbursementMapper;
     }
@@ -235,6 +246,133 @@ public class AllowanceServiceImpl
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    public void adjustCalendar(
+            String reimId,
+            String allowanceId,
+            List<AllowanceCalendarAdjustDTO> adjustList) {
+
+        if (adjustList == null || adjustList.isEmpty()) {
+            throw new BusinessException(400, "补助明细不能为空");
+        }
+
+        ReimbursementEntity reimbursement =
+                reimbursementMapper.selectById(reimId);
+        if (reimbursement == null
+                || Integer.valueOf(DELETED).equals(reimbursement.getDeleted())) {
+            throw new BusinessException(404, "报销单不存在");
+        }
+        if (!Integer.valueOf(STATUS_DRAFT).equals(reimbursement.getStatus())) {
+            throw new BusinessException(400, "只有草稿状态可以调整补助明细");
+        }
+
+        AllowanceEntity allowance = allowanceMapper.selectById(allowanceId);
+        if (allowance == null
+                || Integer.valueOf(DELETED).equals(allowance.getDeleted())
+                || !reimId.equals(allowance.getReimId())) {
+            throw new BusinessException(404, "补助信息不存在");
+        }
+
+        List<AllowanceCalendarEntity> calendarList =
+                calendarMapper.selectList(
+                        new LambdaQueryWrapper<AllowanceCalendarEntity>()
+                                .eq(
+                                        AllowanceCalendarEntity::getAllowanceId,
+                                        allowanceId
+                                )
+                );
+        if (calendarList.size() != adjustList.size()) {
+            throw new BusinessException(400, "补助明细数量与系统记录不一致");
+        }
+
+        Map<String, AllowanceCalendarAdjustDTO> adjustMap = new HashMap<>();
+        for (AllowanceCalendarAdjustDTO item : adjustList) {
+            if (adjustMap.put(item.getCalendarId(), item) != null) {
+                throw new BusinessException(400, "补助日历ID不能重复");
+            }
+        }
+
+        BigDecimal selectedStandardAmount = BigDecimal.ZERO;
+        BigDecimal allowanceAmount = BigDecimal.ZERO;
+        LocalDateTime now = LocalDateTime.now();
+        for (AllowanceCalendarEntity calendar : calendarList) {
+            AllowanceCalendarAdjustDTO adjust =
+                    adjustMap.get(calendar.getId());
+            if (adjust == null) {
+                throw new BusinessException(400, "存在不属于当前补助的明细");
+            }
+
+            BigDecimal mealAmount = validateActualAmount(
+                    "餐费补助",
+                    adjust.getMealSelected(),
+                    adjust.getMealActualAmount(),
+                    calendar.getMealStandardAmount()
+            );
+            BigDecimal trafficAmount = validateActualAmount(
+                    "交通补助",
+                    adjust.getTrafficSelected(),
+                    adjust.getTrafficActualAmount(),
+                    calendar.getTrafficStandardAmount()
+            );
+            BigDecimal communicationAmount = validateActualAmount(
+                    "通讯补助",
+                    adjust.getCommunicationSelected(),
+                    adjust.getCommunicationActualAmount(),
+                    calendar.getCommunicationStandardAmount()
+            );
+            BigDecimal dailyAmount = mealAmount
+                    .add(trafficAmount)
+                    .add(communicationAmount);
+
+            AllowanceCalendarEntity updateCalendar =
+                    new AllowanceCalendarEntity();
+            updateCalendar.setId(calendar.getId());
+            updateCalendar.setMealSelected(adjust.getMealSelected());
+            updateCalendar.setMealActualAmount(mealAmount);
+            updateCalendar.setTrafficSelected(adjust.getTrafficSelected());
+            updateCalendar.setTrafficActualAmount(trafficAmount);
+            updateCalendar.setCommunicationSelected(
+                    adjust.getCommunicationSelected()
+            );
+            updateCalendar.setCommunicationActualAmount(
+                    communicationAmount
+            );
+            updateCalendar.setDailyActualAmount(dailyAmount);
+            updateCalendar.setUpdateTime(now);
+
+            if (calendarMapper.updateById(updateCalendar) != 1) {
+                throw new IllegalStateException("更新补助日历失败");
+            }
+            selectedStandardAmount = selectedStandardAmount
+                    .add(selectedStandardAmount(
+                            adjust.getMealSelected(),
+                            calendar.getMealStandardAmount()
+                    ))
+                    .add(selectedStandardAmount(
+                            adjust.getTrafficSelected(),
+                            calendar.getTrafficStandardAmount()
+                    ))
+                    .add(selectedStandardAmount(
+                            adjust.getCommunicationSelected(),
+                            calendar.getCommunicationStandardAmount()
+                    ));
+            allowanceAmount = allowanceAmount.add(dailyAmount);
+        }
+
+        AllowanceEntity updateAllowance = new AllowanceEntity();
+        updateAllowance.setId(allowanceId);
+        updateAllowance.setStandardTotalAmount(selectedStandardAmount);
+        updateAllowance.setApplyAmount(selectedStandardAmount);
+        updateAllowance.setAllowanceAmount(allowanceAmount);
+        updateAllowance.setUpdateTime(now);
+        if (allowanceMapper.updateById(updateAllowance) != 1) {
+            throw new IllegalStateException("更新补助信息失败");
+        }
+
+        updateReimbursementAmounts(reimId);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
     public void removeByTripId(
             String reimId,
             String tripId) {
@@ -299,6 +437,39 @@ public class AllowanceServiceImpl
                 .replace("-", "");
     }
 
+    private BigDecimal selectedStandardAmount(
+            Integer selected,
+            BigDecimal standardAmount) {
+
+        return Integer.valueOf(SELECTED).equals(selected)
+                ? standardAmount
+                : BigDecimal.ZERO;
+    }
+
+    private BigDecimal validateActualAmount(
+            String allowanceType,
+            Integer selected,
+            BigDecimal actualAmount,
+            BigDecimal standardAmount) {
+
+        if (!Integer.valueOf(SELECTED).equals(selected)) {
+            return BigDecimal.ZERO;
+        }
+        if (actualAmount.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BusinessException(
+                    400,
+                    allowanceType + "金额必须大于0"
+            );
+        }
+        if (actualAmount.compareTo(standardAmount) > 0) {
+            throw new BusinessException(
+                    400,
+                    allowanceType + "金额不能超过标准金额"
+            );
+        }
+        return actualAmount;
+    }
+
     /**
      * 汇总报销单的餐费、交通、通讯及补助总金额。
      */
@@ -350,6 +521,50 @@ public class AllowanceServiceImpl
             throw new IllegalStateException(
                     "更新报销单补助汇总金额失败"
             );
+        }
+
+        updateAllocationAmounts(reimId, totalAmount);
+    }
+
+    private void updateAllocationAmounts(
+            String reimId,
+            BigDecimal totalAmount) {
+
+        List<AllocationEntity> allocationList =
+                allocationMapper.selectList(
+                        new LambdaQueryWrapper<AllocationEntity>()
+                                .eq(AllocationEntity::getReimId, reimId)
+                                .eq(AllocationEntity::getDeleted, NOT_DELETED)
+                                .orderByAsc(AllocationEntity::getSortNo)
+                );
+        BigDecimal remainingAmount = totalAmount;
+        for (int index = 1; index < allocationList.size(); index++) {
+            AllocationEntity allocation = allocationList.get(index);
+            BigDecimal amount = totalAmount
+                    .multiply(allocation.getAllocationRatio())
+                    .setScale(2, RoundingMode.HALF_UP);
+            remainingAmount = remainingAmount.subtract(amount);
+            updateAllocationAmount(allocation.getId(), amount);
+        }
+
+        if (!allocationList.isEmpty()) {
+            updateAllocationAmount(
+                    allocationList.get(0).getId(),
+                    remainingAmount
+            );
+        }
+    }
+
+    private void updateAllocationAmount(
+            String allocationId,
+            BigDecimal amount) {
+
+        AllocationEntity updateAllocation = new AllocationEntity();
+        updateAllocation.setId(allocationId);
+        updateAllocation.setAllocationAmount(amount);
+        updateAllocation.setUpdateTime(LocalDateTime.now());
+        if (allocationMapper.updateById(updateAllocation) != 1) {
+            throw new IllegalStateException("更新费用分摊金额失败");
         }
     }
 }

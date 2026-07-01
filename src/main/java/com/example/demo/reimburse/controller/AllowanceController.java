@@ -1,10 +1,14 @@
 package com.example.demo.reimburse.controller;
 
 import com.example.demo.common.response.ApiResponse;
+import com.example.demo.reimburse.dto.AllowanceCalendarAdjustDTO;
 import com.example.demo.reimburse.service.AllowanceService;
 import com.example.demo.reimburse.vo.AllowanceVO;
+import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -27,5 +31,20 @@ public class AllowanceController {
         return ApiResponse.success(
                 allowanceService.listByReimId(reimId)
         );
+    }
+
+    @PutMapping("/{allowanceId}/calendar")
+    public ApiResponse<Void> adjustCalendar(
+            @PathVariable String reimId,
+            @PathVariable String allowanceId,
+            @Valid @RequestBody
+            List<@Valid AllowanceCalendarAdjustDTO> adjustList) {
+
+        allowanceService.adjustCalendar(
+                reimId,
+                allowanceId,
+                adjustList
+        );
+        return ApiResponse.success();
     }
 }
