@@ -327,13 +327,17 @@ function recalculateCalendarRow(index: number) {
     return
   }
 
-  row.mealActualAmount = row.mealSelected ? Number(row.mealStandardAmount) : 0
-  row.trafficActualAmount = row.trafficSelected ? Number(row.trafficStandardAmount) : 0
-  row.communicationActualAmount = row.communicationSelected
-    ? Number(row.communicationStandardAmount)
-    : 0
+  // 计算当日标准总额（三项标准金额之和）
+  row.dailyStandardAmount =
+    Number(row.mealStandardAmount) +
+    Number(row.trafficStandardAmount) +
+    Number(row.communicationStandardAmount)
+
+  // 计算当日实际金额（仅累加已选中项的实填金额，不重置用户已修改的值）
   row.dailyActualAmount =
-    row.mealActualAmount + row.trafficActualAmount + row.communicationActualAmount
+    (row.mealSelected ? Number(row.mealActualAmount) : 0) +
+    (row.trafficSelected ? Number(row.trafficActualAmount) : 0) +
+    (row.communicationSelected ? Number(row.communicationActualAmount) : 0)
 }
 
 function isAllowanceRowSelected(index: number) {
